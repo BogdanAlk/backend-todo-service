@@ -42,3 +42,14 @@ func (r *Repository) CreateUser(ctx context.Context, email, passwordHash string)
 
 	return 0, err
 }
+func (r *Repository) GetUserByEmail(ctx context.Context, email string) (int64, string, error) {
+	var id int64
+	var passwordHash string
+
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, password_hash FROM users WHERE email = $1`,
+		email,
+	).Scan(&id, &passwordHash)
+
+	return id, passwordHash, err
+}

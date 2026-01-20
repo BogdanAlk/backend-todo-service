@@ -10,6 +10,7 @@ import (
 
 	"github.com/BogdanAlk/backend-todo-service/internal/db"
 	"github.com/BogdanAlk/backend-todo-service/internal/httpapi"
+	"github.com/BogdanAlk/backend-todo-service/internal/tasks"
 	"github.com/BogdanAlk/backend-todo-service/internal/users"
 )
 
@@ -34,9 +35,33 @@ func main() {
 	usersRepo := users.NewRepository(database.Pool)
 	authHandler := httpapi.NewAuthHandler(usersRepo)
 
+	tasksRepo := tasks.NewRepository(database.Pool)
+	tasksHandler := httpapi.NewTasksHandler(tasksRepo)
 	// Router
 	mux := http.NewServeMux()
+	// Auth
+	mux.HandleFunc("/auth/login", authHandler.Login)
+	mux.HandleFunc("/auth/register", authHandler.Register)
 
+	// Tasks (JWT protected)
+	mux.Handle("/tasks", httpapi.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			tasksHandler.List(w, r)
+		case http.MethodPost:
+			tasksHandler.Create(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})))
+
+	mux.Handle("/tasks/", httpapi.AuthMiddleware(http.HandlerFunc(tasksHandler.GetUpdateDelete)))
+	// Protected test endpoint
+	mux.Handle("/me", httpapi.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := httpapi.GetUserID(r)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(fmt.Sprintf("user_id=%d", id)))
+	})))
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -56,10 +81,6 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("db ok"))
 	})
-
-	// Auth
-	mux.HandleFunc("/auth/register", authHandler.Register)
-
 	// Start server
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("Starting server on %s", addr)

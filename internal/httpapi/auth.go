@@ -3,11 +3,10 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
-	"net/http"
-	"strings"
-
 	"github.com/BogdanAlk/backend-todo-service/internal/users"
 	"golang.org/x/crypto/bcrypt"
+	"net/http"
+	"strings"
 )
 
 type AuthHandler struct {
@@ -74,4 +73,54 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		ID:    id,
 		Email: req.Email,
 	})
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type loginResponse struct {
+	Token string `json:"token"`
+}
+
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.Password = strings.TrimSpace(req.Password)
+
+	if req.Email == "" || req.Password == "" {
+		http.Error(w, "email and password required", http.StatusBadRequest)
+		return
+	}
+
+	id, hash, err := h.usersRepo.GetUserByEmail(r.Context(), req.Email)
+	if err != nil {
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)); err != nil {
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	token, err := GenerateToken(id)
+	if err != nil {
+		http.Error(w, "failed to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(loginResponse{Token: token})
 }
